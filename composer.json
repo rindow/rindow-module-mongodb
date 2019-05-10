@@ -1,0 +1,49 @@
+{
+    "name": "rindow/rindow-module-mongodb",
+    "type": "library",
+    "description": "Rindow compatible mongodb components",
+    "keywords": ["rindow","framework","module","mongodb"],
+    "license": "BSD-3-Clause",
+    "require": {
+        "php": ">=5.3.3",
+        "interop-phpobjects/lenient-dao": "*",
+        "rindow/rindow-stdlib": "*",
+        "rindow/rindow-database-dao": "*"
+    },
+    "require-dev": {
+        "interop-phpobjects/lenient-dao": "*",
+        "rindow/rindow-stdlib": "*",
+        "rindow/rindow-annotation": "*",
+        "rindow/rindow-container": "*",
+        "rindow/rindow-aop": "*",
+        "rindow/rindow-transaction": "*",
+        "rindow/rindow-database-dao": "*",
+        "rindow/rindow-persistence-orm": "*",
+        "rindow/rindow-persistence-ormshell": "*",
+        "rindow/rindow-security-core": "*"
+    },
+    "suggest": {
+        "rindow/rindow-container": "It needs some service container",
+        "rindow/rindow-transaction": "It needs some transaction manager",
+        "rindow/rindow-persistence-orm": "When using the ORM Persistences",
+        "rindow/rindow-persistence-ormshell": "When using the ORM Persistences"
+    },
+    "autoload": {
+        "psr-0": {
+            "Rindow\\Module\\Mongodb\\": "src/"
+        }
+    },
+
+    "repositories": [
+        {
+            "type": "composer",
+            "url": "https://rindow.github.io/rindow-packagist/packages.json",
+            "options": {
+                "ssl": {
+                    "verify_peer": "true"
+                }
+            }
+        }
+    ],
+    "minimum-stability": "dev"
+}
