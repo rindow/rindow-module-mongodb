@@ -24,7 +24,7 @@ abstract class AbstractMapper implements DataMapper
     abstract public function tableName();
     abstract public function primaryKey();
     abstract public function fieldNames();
-    
+
     protected $dataSource;
     protected $entityManager;
     protected $hydrator;
@@ -255,7 +255,7 @@ abstract class AbstractMapper implements DataMapper
             $sqlAdapter->setQuery($collection);
             return $sqlAdapter;
         } else {
-            $result = 
+            $result =
                 $this->entityManager->createResultList(
                     $this->executeQuery($sql,$params,$class));
             return $result;
@@ -280,7 +280,7 @@ abstract class AbstractMapper implements DataMapper
 
         if(is_array($query)) {
             //
-            // mongodb query filter 
+            // mongodb query filter
             //
             $filter = $query;
         } elseif($query instanceof PreparedCriteria) {
@@ -379,7 +379,10 @@ abstract class AbstractMapper implements DataMapper
             //$cursor = new Cursor($dbCursor,$connection);
             //return $cursor;
             $data = $dbCursor->toArray();
-            $data = call_user_func($resultFormatter,$data[0]);
+            if(!isset($command['aggregate'])) {
+                $data = $data[0];
+            }
+            $data = call_user_func($resultFormatter,$data);
             return new ArrayCursor($data);
         };
     }

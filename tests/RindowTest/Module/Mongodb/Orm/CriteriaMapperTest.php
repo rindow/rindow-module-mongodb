@@ -267,6 +267,7 @@ class Test extends TestCase
         $this->assertTrue($mapped);
 	}
 
+/*   OLD VERSION mongodb
     public function testPartOfBuilder2()
     {
         $cb = new CriteriaBuilder();
@@ -310,7 +311,7 @@ class Test extends TestCase
                 'group'=>array(
                     'ns' => 'collection',
                     'key' => array('field1'=>1),
-                    '$reduce' => 
+                    '$reduce' =>
                         'function (curr, result) {'.
                             'result.field2 = curr.field2;'.
                             'result.count++;'.
@@ -335,6 +336,79 @@ class Test extends TestCase
         $this->assertEquals(array($pc,'_resultGroup'),$resultFormatter);
         $this->assertFalse($mapped);
     }
+*/
+    /**
+     * aggregate version
+     */
+    public function testPartOfBuilder2()
+    {
+        $cb = new CriteriaBuilder();
+        $cm = new CriteriaMapper();
+
+        $q = $cb->createQuery('FooResult');
+
+        $r = $q->from('FooEntity')->alias('p');
+        $p1 = $cb->parameter('integer','p1');
+        //$q->distinct(true)
+        $q->multiselect(
+                $r->get('field1'),
+                $r->get('field2'),
+                $cb->count($r->get('field1'))->alias('count'),
+                $cb->sum($r->get('field3'))->alias('sum'),
+                $cb->max($r->get('field4'))->alias('max'),
+                $cb->min($r->get('field5'))->alias('min')
+            )
+            //->where($cb->and_(
+            //    $cb->gt($r->get('field1'),$p1),
+            //    $cb->le($p1,$r->get('field1_2'))))
+            //->orderBy(
+            //    $cb->desc($r->get('field2')),
+            //    $r->get('field2_2'));
+            ->groupBy(
+                $r->get('field1')
+            )
+            ->having($cb->gt($r->get('field1'),$p1));
+
+        $parameters = array(
+            'p1' => 1,
+        );
+
+        $pc = $cm->prepare($q);
+        $options = array('limit'=>10);
+        list($filter,$options,$command,$resultFormatter,$mapped) = $pc->buildQuery($parameters,$options,'collection');
+        // $filter ===> N/A
+        // $options ===> N/A
+        $this->assertEquals(
+            array(
+                'aggregate' => 'collection',
+                'pipeline' => array(
+                    array(
+                        '$match' => array('field1' => array('$gt'=>1)),
+                    ),
+                    array(
+                        '$group' => array(
+                            '_id' => '$field1',
+                            'count' => array('$sum'=>1),
+                            'sum' => array('$sum'=>'$field3'),
+                            'max' => array('$max'=>'$field4'),
+                            'min' => array('$min'=>'$field5'),
+                        ),
+                    ),
+                    array(
+                        '$addFields' => array(
+                            'field1' => '$_id',
+                            'field2' => array('$first' => '$field2'),
+                        ),
+                    ),
+                ),
+                'cursor' => new \stdClass(),
+            ),
+            $command
+        );
+        $this->assertEquals(array($pc,'_resultGroup'),$resultFormatter);
+        $this->assertFalse($mapped);
+    }
+
     public function testBuilder1OnEntityManager()
     {
         $collection = 'category';
@@ -485,6 +559,9 @@ class Test extends TestCase
 */
     public function testAggregationQueryOnEntityManager()
     {
+        //$this->markTestIncomplete('group command is discontinued.');
+        //return;
+
         $collection = 'category';
         $data = array(
             array('name'=>'test1','level'=>1, 'qty'=>10),

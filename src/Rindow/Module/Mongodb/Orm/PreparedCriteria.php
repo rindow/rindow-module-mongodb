@@ -8,7 +8,7 @@ class PreparedCriteria
 {
     protected $criteria;
     protected $resultClass;
-    
+
     public function __construct($criteria,$queryFactory,$entityClass,$resultClass=null)
     {
         $this->criteria = $criteria;
@@ -146,7 +146,7 @@ class PreparedCriteria
                 $command = $this->buildCountCommand($entityClass,$function,$collection,$params,$filter,$options);
                 $resultFilter = array($this,'_resultCount');
                 break;
-            
+
             default:
                 throw new Exception\DomainException('"'.$function->getOperator().'" function is not supported on the Mongodb CriteriaMapper.');
                 break;
@@ -323,50 +323,60 @@ class PreparedCriteria
         if(!$selection->isCompoundSelection())
             throw new Exception\DomainException('group command must be "COMPOUND" in "'.$entityClass.'"');
 
+        $key = null;
         foreach ($this->criteria->getGroupList() as $path) {
+            if($key!=null) {
+                throw new Exception\DomainException('Only one grouping key can be specified.');
+            }
             $this->assertRoot($entityClass, $path);
-            $key[$path->getNodeName()] = 1;
+            $key = $path->getNodeName();
         }
-        $initial = array();
-        $script = '';
-        $finalizeScript = '';
+        $group = array();
+        if($key===null) {
+            $group['_id'] = null;
+        } else {
+            $group['_id'] = '$'.$key;
+        }
+        $addFields = array();
         foreach ($selection->getCompoundSelectionItems() as $subSelection) {
             if($subSelection->getExpressionType()=='PATH') {
-                if(isset($key[$subSelection->getNodeName()]))
-                    continue;
                 $alias = $nodeName = $subSelection->getNodeName();
                 if($subSelection->getAlias())
                     $alias = $subSelection->getAlias();
-                $script .= 'result.'.$alias.' = curr.'.$nodeName.';';
-                $initial[$alias] = 0;
+                if($key==$subSelection->getNodeName()) {
+                    $addFields[$alias] = '$_id';
+                } else {
+                    $addFields[$alias] = array('$first'=>'$'.$subSelection->getNodeName());
+                }
             } elseif($subSelection->getExpressionType()=='FUNCTION') {
                 if($subSelection->getAlias()==null) {
                     throw new Exception\DomainException('A function "'.$subSelection->getOperator().'" must have alias in a compound selection.:"'.$entityClass.'"');
                 }
-                list($functionScript,$initialValue) = $this->getGroupFunctionScript($entityClass,$subSelection);
-                $script .= $functionScript;
-                $initial[$subSelection->getAlias()] = $initialValue;
+                $group[$subSelection->getAlias()] = $this->getGroupFunction($entityClass,$subSelection);
             }
         }
-        $script = 'function (curr, result) {'.$script.'}';
         $restriction = $this->criteria->getGroupRestriction();
-        $condition = $this->getFilterSub($restriction,$params);
-        $command = array(
-            'group' => array(
-                'ns' => $collection,
-                'key' => $key,
-                '$reduce' => $script,
-                'initial' => $initial,
-            ),
-        );
+        $condition = $this->getGroupCondition($restriction,$params);
+        $pipeline = array();
         if(!empty($condition))
-            $command['group']['cond'] = $condition;
-        if($finalizeScript!='')
-            $command['group']['finalize'] = $finalizeScript;
+            $pipeline[] = array('$match' => $condition);
+        $pipeline[] = array('$group' => $group);
+        if(!empty($addFields))
+            $pipeline[] = array('$addFields' => $addFields);
+        $command = array();
+        $command['aggregate'] = $collection;
+        $command['pipeline'] = $pipeline;
+        if(isset($options['batchSize'])) {
+            $command['cursor']['batchSize'] = $options['batchSize'];
+        } else {
+            $command['cursor'] = new \stdClass();
+        }
+        if(isset($options['readConcern']))
+            $command['readConcern'] = $options['readConcern'];
         return array($command,array($this,'_resultGroup'));
     }
 
-    protected function getGroupFunctionScript($entityClass,$function)
+    protected function getGroupFunction($entityClass,$function)
     {
         $operator = $function->getOperator();
         $expressions = $function->getExpressions();
@@ -377,38 +387,52 @@ class PreparedCriteria
 
         switch ($operator) {
             case 'COUNT':
-                $script = 'result.'.$function->getAlias().'++';
-                $initial = 0;
+                $function = array('$sum'=>1);
                 break;
-            
+
             case 'SUM':
-                $script = 'result.'.$function->getAlias().' += curr.'.$expression->getNodeName();
-                $initial = 0;
+                $function = array('$sum'=>'$'.$expression->getNodeName());
                 break;
 
             case 'MAX':
-                $script = 'result.'.$function->getAlias().' = Math.max(result.'.$function->getAlias().',curr.'.$expression->getNodeName().')';
-                $initial = ~PHP_INT_MAX;
+                $function = array('$max'=>'$'.$expression->getNodeName());
                 break;
 
             case 'MIN':
-                $script = 'result.'.$function->getAlias().' = Math.min(result.'.$function->getAlias().',curr.'.$expression->getNodeName().')';
-                $initial = PHP_INT_MAX;
+                $function = array('$min'=>'$'.$expression->getNodeName());
+                break;
+
+            case 'AVG':
+                $function = array('$avg'=>'$'.$expression->getNodeName());
                 break;
 
             default:
                 throw new Exception\DomainException('"'.$operator.'" function is not supported on the Mongodb CriteriaMapper.');
                 break;
         }
-        return array($script.';',$initial);
+        return $function;
+    }
+
+    public function getGroupCondition($restriction,$params)
+    {
+        $filter = $this->getFilterSub($restriction,$params);
+        if(isset($filter['$or'])) {
+            throw new Exception\DomainException('"OR" operator is not supported in aggregation operation.');
+        }elseif(isset($filter['$and'])) {
+            $match = array();
+            foreach ($filter['$and'] as $field => $condition) {
+                if(!isset($match[$field])) {
+                    $match[$field] = array();
+                }
+                array_push($match[$field],$condition);
+            }
+            return $match;
+        }
+        return $filter;
     }
 
     public function _resultGroup($result)
     {
-        if(!$result)
-            return $result;
-        if(!isset($result['ok']) || !$result['ok'])
-            throw new Exception\RuntimeException('group command error at "'.$this->getEntityClass().'"');
-        return $result['retval'];
+        return $result;
     }
 }

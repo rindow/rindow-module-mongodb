@@ -175,6 +175,9 @@ class Connection
             return $result->n;
     }
 
+    /**
+     *   group command is discontinued in Mongodb server.
+     */
     public function group($collection,array $key,$reduce,array $initial,array $options=null)
     {
         $command = array('group'=> array(
@@ -188,6 +191,20 @@ class Connection
             return $result['retval'];
         else
             return $result->retval;
+    }
+
+    public function aggregate($collection,array $pipeline,$batchSize=null)
+    {
+        if($batchSize){
+            $cursorOption = array('batchSize'=>$batchSize);
+        } else {
+            $cursorOption = new \stdClass;
+        }
+        $command = array('aggregate'=>$collection, 'pipeline'=>$pipeline,
+            'cursor'=>$cursorOption);
+        $cursor = $this->executeCommand($command);
+        $result = $cursor->toArray();
+        return $result;
     }
 
     public function executeCommand(array $command,$readPreference=null)

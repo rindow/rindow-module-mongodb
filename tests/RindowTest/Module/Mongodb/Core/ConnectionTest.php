@@ -204,6 +204,9 @@ class Test extends TestCase
 
     public function testGroup()
     {
+        $this->markTestSkipped('group command is discontinued in mongodb server');
+        return;
+
         $connection = new Connection(array('database'=>'test'));
         $this->assertEquals('test',$connection->getDatabase());
 
@@ -242,6 +245,79 @@ class Test extends TestCase
                 $this->assertEquals(30,$row['sum']);
             else
                 throw new \Exception("Error Processing Request", 1);
+            $count++;
+        }
+        $this->assertEquals(1,$count);
+    }
+
+    public function testAggregate()
+    {
+        $connection = new Connection(array('database'=>'test'));
+        $this->assertEquals('test',$connection->getDatabase());
+
+        $id  = $connection->insert('test',array('a'=>10,'b'=>20));
+        $id2 = $connection->insert('test',array('a'=>10,'b'=>40));
+        $id  = $connection->insert('test',array('a'=>20,'b'=>20));
+        $pipeline = array(
+            array(
+                '$group'=>array(
+                    '_id'=>'$a',
+                    'count'=>array('$sum'=>1),
+                    'max'=>array('$max'=>'$b'),
+                    'min'=>array('$min'=>'$b'),
+                    'sum'=>array('$sum'=>'$b'),
+                    'avg'=>array('$avg'=>'$b'),
+                ),
+            ),
+            array(
+                '$addFields'=>array(
+                    'a' => '$_id',
+                )
+            )
+        );
+        $cursor = $connection->aggregate('test',$pipeline);
+        $count = 0;
+        foreach($cursor as $row) {
+            if($row['_id']==10) {
+                $this->assertEquals(2,$row['count']);
+                $this->assertEquals(40,$row['max']);
+                $this->assertEquals(20,$row['min']);
+                $this->assertEquals(60,$row['sum']);
+                $this->assertEquals(30,$row['avg']);
+                $this->assertEquals(10,$row['a']);
+            }
+            $count++;
+        }
+        $this->assertEquals(2,$count);
+
+        $pipeline = array(
+            array(
+                '$match' => array(
+                    'a' => array('$lte'=>10,'$gt'=>0),
+                    'b' => array('$lte'=>20,'$gt'=>0),
+                )
+            ),
+            array(
+                '$group'=>array(
+                    '_id'=>'$a',
+                    'count'=>array('$sum'=>1),
+                    'max'=>array('$max'=>'$b'),
+                    'min'=>array('$min'=>'$b'),
+                    'sum'=>array('$sum'=>'$b'),
+                    'avg'=>array('$avg'=>'$b'),
+                ),
+            ),
+        );
+        $cursor = $connection->aggregate('test',$pipeline);
+        $count = 0;
+        foreach($cursor as $row) {
+            if($row['_id']==10) {
+                $this->assertEquals(1,$row['count']);
+                $this->assertEquals(20,$row['max']);
+                $this->assertEquals(20,$row['min']);
+                $this->assertEquals(20,$row['sum']);
+                $this->assertEquals(20,$row['avg']);
+            }
             $count++;
         }
         $this->assertEquals(1,$count);

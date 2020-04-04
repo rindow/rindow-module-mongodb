@@ -4,6 +4,8 @@ php:
     - '5.6'
     - '7.1'
     - '7.2'
+    - '7.3'
+    - '7.4'
 
 matrix:
   include:
@@ -25,5 +27,5 @@ before_install:
 install:
   - export TRAVIS_PHP_VERSION; sh tests/travis/install-script.sh
 
-script: 
+script:
   - sh tests/travis/run-test.sh
