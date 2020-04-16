@@ -9,13 +9,13 @@ use MongoDB\BSON\ObjectId;
 use Interop\Lenient\Dao\Repository\DataMapper;
 use Interop\Lenient\Dao\Query\Expression;
 use Rindow\Database\Dao\Support\QueryBuilder;
+use Rindow\Stdlib\Entity\AbstractEntity;
+use MongoDB\BSON\Persistable;
 
 class TestDataMapper implements DataMapper
 {
     public function map($data)
     {
-        $data['id'] = $data['_id'];
-        unset($data['_id']);
         return (object)$data;
     }
 
@@ -23,10 +23,6 @@ class TestDataMapper implements DataMapper
     {
         //var_dump($entity);
         $data = get_object_vars($entity);
-        if(isset($data['id'])) {
-            $data['_id'] = $data['id'];
-        }
-        unset($data['id']);
         return $data;
     }
 
@@ -73,6 +69,53 @@ class TestMongodbRepository extends MongodbRepository
     }
 }
 
+class TestEntityForBSON extends AbstractEntity implements Persistable
+{
+    protected $id;
+    protected $name;
+    protected $day;
+    protected $ser;
+
+    public function __construct(array $data = null)
+    {
+        if($data==null)
+            return;
+        foreach ($data as $key => $value) {
+            $this->$key = $value;
+        }
+    }
+
+    public function bsonUnserialize(array $data)
+    {
+        foreach ($data as $key => $value) {
+            if($key=='_id')
+                $key = 'id';
+            if(property_exists($this, $key))
+                $this->$key = $value;
+        }
+    }
+
+    public function bsonSerialize()
+    {
+        $data = array();
+        if($this->id!==null)
+            $data['_id'] = $this->id;
+        $data['name'] = $this->name;
+        $data['day'] = $this->day;
+        $data['ser'] = $this->ser;
+        return $data;
+    }
+
+    public function fillId($id)
+    {
+        $this->id = $id;
+    }
+
+    public function extractId()
+    {
+        return $this->id;
+    }
+}
 
 class Test extends TestCase
 {
@@ -596,6 +639,9 @@ class Test extends TestCase
             $count++;
         }
         $this->assertEquals(1,$count);
+
+        $entity = $repository->findById($id);
+        $this->assertEquals(array('id'=>$id,'field'=>'boo'),get_object_vars($entity));
     }
 
     public function testCustomizeForClassMapping()
@@ -625,6 +671,71 @@ class Test extends TestCase
             $r->id = $id;
             $r->field = 'boo';
             $this->assertEquals($r,$entity);
+            $count++;
+        }
+        $this->assertEquals(1,$count);
+    }
+
+    public function testBSONEntityCURD()
+    {
+        $repository = $this->getRepository('testcol');
+        $repository->setFetchClass(__NAMESPACE__.'\\TestEntityForBSON');
+
+        /// create
+        $row = $repository->save(new TestEntityForBSON(
+                                array('name'=>'test','day'=>1,'ser'=>1)));
+        $id = $row->getId();
+        $this->assertInstanceOf('MongoDB\BSON\ObjectId',$id);
+        $this->assertEquals(array('id'=>$id,'name'=>'test','day'=>1,'ser'=>1),
+            array('id'=>$row->getId(),'name'=>$row->getName(),'day'=>$row->getDay(),'ser'=>$row->getSer()));
+        $row = $repository->save(new TestEntityForBSON(
+                                array('name'=>'test2','day'=>1,'ser'=>10)));
+        $id2 = $row->getId();
+        $this->assertInstanceOf('MongoDB\BSON\ObjectId',$id2);
+        $this->assertEquals(array('id'=>$id2,'name'=>'test2','day'=>1,'ser'=>10),
+            array('id'=>$row->getId(),'name'=>$row->getName(),'day'=>$row->getDay(),'ser'=>$row->getSer()));
+        $this->assertNotEquals(strval($id),strval($id2));
+
+        // read
+        $row = $repository->findById($id);
+        $this->assertEquals(array('id'=>$id,'name'=>'test','day'=>1,'ser'=>1),
+            array('id'=>$row->getId(),'name'=>$row->getName(),'day'=>$row->getDay(),'ser'=>$row->getSer()));
+        $row = $repository->findById($id2);
+        $this->assertEquals(array('id'=>$id2,'name'=>'test2','day'=>1,'ser'=>10),
+            array('id'=>$row->getId(),'name'=>$row->getName(),'day'=>$row->getDay(),'ser'=>$row->getSer()));
+
+        $rows = $repository->findAll();
+        $count=0;
+        foreach($rows as $row) {
+            if($row->getId()==$id) {
+                $this->assertEquals('test',$row->getName());
+            } elseif($row->getId()==$id2) {
+                $this->assertEquals('test2',$row->getName());
+            } else {
+                $this->assertTrue(false);
+            }
+            $count++;
+        }
+        $this->assertEquals(2,$count);
+
+        // update
+        $row = $repository->save(new TestEntityForBSON(
+                                array('id'=>$id,'name'=>'test2','day'=>1,'ser'=>1)));
+        $this->assertEquals(strval($id),strval($row->getId()));
+        $row = $repository->findById($id);
+        $this->assertEquals(array('id'=>$id,'name'=>'test2','day'=>1,'ser'=>1),
+            array('id'=>$row->getId(),'name'=>$row->getName(),'day'=>$row->getDay(),'ser'=>$row->getSer()));
+
+        // delete
+        $repository->deleteById($id);
+        $rows = $repository->findAll();
+        $count=0;
+        foreach($rows as $row) {
+            if($row->getId()==$id2) {
+                $this->assertEquals('test2',$row->getName());
+            } else {
+                $this->assertTrue(false);
+            }
             $count++;
         }
         $this->assertEquals(1,$count);

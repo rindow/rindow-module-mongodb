@@ -4,9 +4,11 @@ namespace Rindow\Module\Mongodb\Repository;
 use Interop\Lenient\Dao\Query\Expression as ExpressionInterface;
 use Interop\Lenient\Dao\Repository\CrudRepository;
 use Interop\Lenient\Dao\Repository\DataMapper;
+use Rindow\Stdlib\Entity\PropertyAccessPolicy;
 use Rindow\Database\Dao\Exception;
 use Rindow\Database\Dao\Support\ResultList;
 use MongoDB\BSON\Serializable as BSONSerializable;
+use MongoDB\BSON\Unserializable as BSONUnserializable;
 use MongoDB\BSON\ObjectId;
 
 class MongodbRepository implements CrudRepository,DataMapper
@@ -25,6 +27,7 @@ class MongodbRepository implements CrudRepository,DataMapper
     protected $queryBuilder;
     protected $dataMapper;
     protected $keyName = 'id';
+    protected $fetchClass;
 
     public function __construct($dataSource=null,$collection=null,$queryBuilder=null)
     {
@@ -95,23 +98,27 @@ class MongodbRepository implements CrudRepository,DataMapper
     protected function makeDocument($entity)
     {
         if($this->dataMapper) {
-            $values = $this->dataMapper->demap($entity);
-            if(!is_array($values) && !($values instanceof BSONSerializable)) {
+            $entity = $this->dataMapper->demap($entity);
+            if(!is_array($entity) && !($entity instanceof BSONSerializable)) {
                 throw new Exception\InvalidArgumentException('mapped document must be array.');
             }
-        } else {
-            $entity = $this->demap($entity);
-            if(!is_array($entity) && !($values instanceof BSONSerializable)) {
-                throw new Exception\InvalidArgumentException('the entity must be array.');
-            }
-            $values = $this->shiftId($entity);
         }
-        return $values;
+        $entity = $this->demap($entity);
+        if(!is_array($entity) && !($entity instanceof BSONSerializable)) {
+            throw new Exception\InvalidArgumentException('the entity must be array.');
+        }
+        if(!($entity instanceof BSONSerializable)) {
+            $entity = $this->shiftId($entity);
+        }
+        return $entity;
     }
 
     protected function extractId($values)
     {
         if($values instanceof BSONSerializable) {
+            if(method_exists($values,'extractId')) {
+                return $values->extractId();
+            }
             $values = $values->bsonSerialize();
         }
         if(isset($values['_id']))
@@ -235,7 +242,8 @@ class MongodbRepository implements CrudRepository,DataMapper
         if(!is_array($values) && !($values instanceof BSONSerializable))
             throw new Exception\InvalidArgumentException('mapped document must be array.');
         $options = array('upsert'=>true);
-        $filter = $this->buildMongoFilter(array('_id'=>$values['_id']));
+        $id = $this->extractId($values);
+        $filter = $this->buildMongoFilter(array('_id'=>$id));
         $connection = $this->getConnection();
         $connection->update($this->collection,$filter,$values,$options);
     }
@@ -279,13 +287,18 @@ class MongodbRepository implements CrudRepository,DataMapper
         $filter = $this->buildMongoFilter(array('_id'=>$id));
         $connection = $this->getConnection();
         $cursor = $connection->find($this->collection,$filter);
+        if($this->dataMapper)
+            $fetchClass = $this->dataMapper->getFetchClass();
+        else
+            $fetchClass = $this->getFetchClass();
+        if($fetchClass)
+            $cursor->setTypeMap(array('root'=>$fetchClass));
         $values = $cursor->fetch();
         if(!$values)
             return null;
+        $entity = $this->map($values);
         if($this->dataMapper) {
-            $entity = $this->dataMapper->map($values);
-        } else {
-            $entity = $this->map($values);
+            $entity = $this->dataMapper->map($entity);
         }
         return $entity;
     }
@@ -325,10 +338,9 @@ class MongodbRepository implements CrudRepository,DataMapper
         if($fetchClass)
             $cursor->setTypeMap(array('root'=>$fetchClass));
         $resultList = new ResultList(array($cursor,'fetch'),array($cursor,'close'));
+        $resultList->addFilter(array($this,'map'));
         if($this->dataMapper)
             $resultList->addFilter(array($this->dataMapper,'map'));
-        else
-            $resultList->addFilter(array($this,'map'));
         return $resultList;
     }
 
@@ -371,17 +383,38 @@ class MongodbRepository implements CrudRepository,DataMapper
 
     public function map($entity)
     {
+        if($entity instanceof BSONUnserializable)
+            return $entity;
         return $this->unshiftId($entity);
     }
 
     public function fillId($values,$id)
     {
-        $values[$this->keyName] = $id;
+        if($values instanceof BSONSerializable) {
+            if(method_exists($values,'fillId')) {
+                $values->fillId($id);
+            } elseif($values instanceof PropertyAccessPolicy) {
+                $keyName = $this->keyName;
+                $values->$keyName = $id;
+            } else {
+                $method = 'set'.ucfirst($this->keyName);
+                if(method_exists($values,$method)) {
+                    $values->$method($id);
+                }
+            }
+        } else {
+            $values[$this->keyName] = $id;
+        }
         return $values;
+    }
+
+    public function setFetchClass($fetchClass)
+    {
+        $this->fetchClass = $fetchClass;
     }
 
     public function getFetchClass()
     {
-        return null;
+        return $this->fetchClass;
     }
 }

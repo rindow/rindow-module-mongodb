@@ -30,7 +30,7 @@ class TestDataMapper implements DataMapper
     public function map($data)
     {
         $entity = new TestEntity();
-        $entity->setId($data['_id']);
+        $entity->setId($data['id']);
         if(isset($data['test']))
             $entity->setTest($data['test']);
         if(isset($data['group']))
@@ -45,7 +45,7 @@ class TestDataMapper implements DataMapper
         //var_dump($entity);
         $data = array();
         if($entity->getId()!==null)
-            $data['_id'] = $entity->getId();
+            $data['id'] = $entity->getId();
         if($entity->getTest()!==null)
             $data['test'] = $entity->getTest();
         if($entity->getGroup()!==null)
@@ -101,6 +101,11 @@ class TestEntityForBSON extends AbstractEntity implements Persistable
         $data['group'] = $this->group;
         $data['ser'] = $this->ser;
         return $data;
+    }
+
+    public function fillId($id)
+    {
+        $this->id = $id;
     }
 }
 
@@ -330,7 +335,7 @@ class Test extends TestCase
                     __NAMESPACE__.'\TestExtendedRepository' => true,
                 ),
                 'pointcuts' => array(
-                    __NAMESPACE__.'\TestExtendedRepository'=> 
+                    __NAMESPACE__.'\TestExtendedRepository'=>
                         'execution('.__NAMESPACE__.'\TestExtendedRepository::save()) ||'.
                         'execution('.__NAMESPACE__.'\TestExtendedRepository::findById()) ||'.
                         'execution('.__NAMESPACE__.'\TestExtendedRepository::findAll()) ||'.
